@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"strings"
 )
 
@@ -13,31 +14,40 @@ import (
 var ErrTooManyPackages = errors.New("more than one package found in a directory")
 
 // PackageAST returns the AST of the package at the given path.
-func PackageAST(path string) (pkg *ast.Package, err error) {
+func PackageAST(path string, includeTestFiles bool) (pkg *ast.Package, err error) {
+	var fileFilter fileFilter = nil
+	if !includeTestFiles {
+		fileFilter = func(fi os.FileInfo) bool {
+			return !strings.HasSuffix(fi.Name(), "_test.go")
+		}
+	}
+
 	return parseAndFilterPackages(path, func(k string, v *ast.Package) bool {
 		return !strings.HasSuffix(k, "_test")
-	})
+	}, fileFilter)
 }
 
 // PackageTestAST returns the AST of the test package at the given path.
 func PackageTestAST(path string) (pkg *ast.Package, err error) {
 	return parseAndFilterPackages(path, func(k string, v *ast.Package) bool {
 		return strings.HasSuffix(k, "_test")
-	})
+	}, nil)
 }
 
 type packageFilter func(string, *ast.Package) bool
 
+type fileFilter func(os.FileInfo) bool
+
 // filteredPackages filters the parsed packages and then makes sure there is only
 // one left.
-func parseAndFilterPackages(path string, filter packageFilter) (pkg *ast.Package, err error) {
+func parseAndFilterPackages(path string, filter packageFilter, fileFilter fileFilter) (pkg *ast.Package, err error) {
 	fset := token.NewFileSet()
 	srcDir, err := DefaultGoPath.Abs(path)
 	if err != nil {
 		return nil, err
 	}
 
-	pkgs, err := parser.ParseDir(fset, srcDir, nil, parser.ParseComments)
+	pkgs, err := parser.ParseDir(fset, srcDir, fileFilter, parser.ParseComments)
 	if err != nil {
 		return nil, err
 	}
